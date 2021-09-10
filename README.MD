@@ -84,8 +84,11 @@ make V=1 -j 8
 make install
 ```
 9. To compile out of the box, make sure your project directory structure looks like this:
+
 **SomeFolder/IrrlichtVideoPlayerLib/IrrlichtVideoPlayerLib/** (this repository)
+
 **SomeFolder/Hello/libs/tmp/** (place ffmpeg and x264 were installed and built from the previous step)
+
 **SomeFolder/irrlicht-code/** (place Irrlicht was downloaded -- this project uses the statically linked version, so you'll need to build Irrlicht statically)
 
 
