@@ -6,22 +6,6 @@
 
 #include "VideoPlayer.h"
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
-#include <libavutil/avutil.h>
-#include <libavutil/imgutils.h>
-#include <libavdevice/avdevice.h>
-}
-#include <stdio.h>
-// compatibility with newer API
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,28,1)
-#define av_frame_alloc avcodec_alloc_frame
-#define av_frame_free avcodec_free_frame
-#endif
-#include <iostream>
-
 
 // Initalizing these to NULL prevents segfaults!
 AVFormatContext   *pFormatCtx = NULL;
@@ -31,6 +15,14 @@ AVCodec           *pCodec = NULL;
 AVFrame           *pFrame = NULL;
 AVFrame           *pFrameRGB = NULL;
 AVPacket          packet;
+
+AVOutputFormat*   pOutFormat;
+AVFormatContext*  pOutFormatCtx = NULL;
+AVCodecContext*   pOutCodecCtx = NULL;
+AVCodec*          pOutCodec = NULL;
+AVFrame*          pOutFrame = NULL;
+AVPacket		  outPacket;
+AVStream*		  outStream;
 
 struct SwsContext *sws_ctx = NULL;
 
@@ -93,6 +85,7 @@ int VideoPlayer::init(const char* filename, IrrlichtDevice *device, bool scaleTo
 	driver = device->getVideoDriver();
 
 	avdevice_register_all();
+	av_log_set_level(AV_LOG_DEBUG);
 
 	//Meta-Data,not used
 	AVDictionaryEntry *tag = NULL;
@@ -234,8 +227,12 @@ int VideoPlayer::decodeFrameInternal() {
 			avcodec_send_packet(pCodecCtx, &packet);
 			while (ret >= 0) {
 				ret = avcodec_receive_frame(pCodecCtx, pFrame);
-				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-					return 0;
+				if (ret == AVERROR(EAGAIN))
+				{
+					ret = 0;
+					avcodec_send_packet(pCodecCtx, &packet);
+					continue;
+				}
 
 				//pFormatCtx->duration
 				// Convert the image from its native format to RGB
@@ -243,6 +240,14 @@ int VideoPlayer::decodeFrameInternal() {
 					pFrame->linesize, 0, pCodecCtx->height,
 					pFrameRGB->data, pFrameRGB->linesize);
 
+				if (outputting)
+				{
+					if (writeFrame(pFrameRGB) < 0);
+					{
+						ret = 0;
+						continue;
+					}
+				}
 				writeVideoTexture(pFrameRGB, imageRt);
 			}
 			ret = 0;
@@ -251,6 +256,178 @@ int VideoPlayer::decodeFrameInternal() {
 		av_packet_unref(&packet);
 	}
 	return ret;
+}
+
+int VideoPlayer::beginOutput(const char* filename)
+{
+	pOutFormatCtx = NULL;
+	int value = 0;
+
+	/* Returns the output format in the list of registered output formats which best matches the provided parameters, or returns NULL if there is no match. */
+	pOutFormat = (AVOutputFormat*)av_guess_format(NULL, filename, NULL);
+	if (!pOutFormat)
+	{
+		std::cout << "\nerror in guessing the video format. try with correct format";
+		exit(1);
+	}
+
+	avformat_alloc_output_context2(&pOutFormatCtx, pOutFormat, NULL, filename);
+	if (!pOutFormatCtx)
+	{
+		std::cout << "\nerror in allocating av format output context";
+		exit(1);
+	}
+
+	pOutCodec = (AVCodec*)avcodec_find_encoder(pOutFormat->video_codec);
+	if (!pOutCodec)
+	{
+		std::cout << "\nerror in finding the av codecs. try again with correct codec";
+		exit(1);
+	}
+
+	outStream = avformat_new_stream(pOutFormatCtx, NULL);
+	if (!outStream)
+	{
+		std::cout << "\nerror in creating a av format new stream";
+		exit(1);
+	}
+
+	pOutCodecCtx = avcodec_alloc_context3(pOutCodec);
+	if (!pOutCodecCtx)
+	{
+		std::cout << "\nerror in allocating the codec contexts";
+		exit(1);
+	}
+
+	/* set property of the video file */
+	int bitrate = 20;
+	int fps = 30;
+
+	outStream->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+	outStream->codecpar->width = 1920;
+	outStream->codecpar->height = 1080;
+	outStream->codecpar->format = AV_PIX_FMT_YUV420P;
+	outStream->codecpar->bit_rate = bitrate * 1000;
+	outStream->avg_frame_rate = { fps, 1 };
+	avcodec_parameters_to_context(pOutCodecCtx, outStream->codecpar);
+	pOutCodecCtx->time_base = { 1, 1 };
+	pOutCodecCtx->max_b_frames = 2;
+	pOutCodecCtx->gop_size = 12;
+	pOutCodecCtx->framerate = { fps, 1 };
+
+	if (pOutCodecCtx->codec_id == AV_CODEC_ID_H264)
+	{
+		av_opt_set(pOutCodecCtx->priv_data, "preset", "slow", 0);
+	}
+
+	avcodec_parameters_from_context(outStream->codecpar, pOutCodecCtx);
+
+	/* Some container formats (like MP4) require global headers to be present
+	   Mark the encoder so that it behaves accordingly. */
+
+	if (pOutFormatCtx->oformat->flags & AVFMT_GLOBALHEADER)
+	{
+		pOutFormatCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+	}
+
+	value = avcodec_open2(pOutCodecCtx, pOutCodec, NULL);
+	if (value < 0)
+	{
+		std::cout << "\nerror in opening the avcodec";
+		exit(1);
+	}
+
+	/* create empty video file */
+	if (!(pOutFormatCtx->flags & AVFMT_NOFILE))
+	{
+		if (avio_open2(&pOutFormatCtx->pb, filename, AVIO_FLAG_WRITE, NULL, NULL) < 0)
+		{
+			std::cout << "\nerror in creating the video file";
+			exit(1);
+		}
+	}
+
+	if (!pOutFormatCtx->nb_streams)
+	{
+		std::cout << "\noutput file dose not contain any stream";
+		exit(1);
+	}
+
+	/* imp: mp4 container or some advanced container file required header information*/
+	value = avformat_write_header(pOutFormatCtx, NULL);
+	if (value < 0)
+	{
+		std::cout << "\nerror in writing the header context: " << av_make_error_string(value);
+		exit(1);
+	}
+
+	/*
+	// uncomment here to view the complete video file informations
+	cout<<"\n\nOutput file information :\n\n";
+	av_dump_format(outAVFormatContext , 0 ,output_file ,1);
+	*/
+	outputting = true;
+
+	av_dump_format(pOutFormatCtx, 0, filename, 1);
+
+	return 0;
+}
+
+int VideoPlayer::writeFrame(AVFrame* pFrame)
+{
+	if (!outputting)
+		return -1;
+
+	pOutFrame = av_frame_alloc();
+	outPacket = *av_packet_alloc();
+	outPacket.data = NULL;
+	outPacket.size = 0;
+
+	avcodec_send_frame(pOutCodecCtx, pFrame);
+	int ret = 0;
+	while (ret >= 0)
+	{
+		ret = avcodec_receive_packet(pOutCodecCtx, &outPacket);
+		if (ret == AVERROR(EAGAIN))
+		{
+			std::cout << "writeFrame: " << av_make_error_string(ret) << std::endl;
+			avcodec_send_frame(pOutCodecCtx, pFrame);
+			return -1;
+		}
+
+		if (outPacket.pts != AV_NOPTS_VALUE)
+			outPacket.pts = av_rescale_q(outPacket.pts, outStream->time_base, outStream->time_base);
+		if (outPacket.dts != AV_NOPTS_VALUE)
+			outPacket.dts = av_rescale_q(outPacket.dts, outStream->time_base, outStream->time_base);
+
+		static int counter = 0;
+		if (counter == 0) {
+			FILE* fp = fopen("dump_first_frame1.dat", "wb");
+			fwrite(outPacket.data, outPacket.size, 1, fp);
+			fclose(fp);
+		}
+		std::cout << "pkt key: " << (outPacket.flags & AV_PKT_FLAG_KEY) << " " <<
+			outPacket.size << " " << (counter++) << std::endl;
+		uint8_t* size = ((uint8_t*)outPacket.data);
+		std::cout << "first: " << (int)size[0] << " " << (int)size[1] <<
+			" " << (int)size[2] << " " << (int)size[3] << " " << (int)size[4] <<
+			" " << (int)size[5] << " " << (int)size[6] << " " << (int)size[7] <<
+			std::endl;
+
+		if (av_write_frame(pOutFormatCtx, &outPacket) != 0)
+		{
+			std::cout << "\nerror in writing video frame";
+		}
+
+		av_packet_unref(&outPacket);
+	}
+
+	return 0;
+}
+
+int VideoPlayer::endOutput()
+{
+	return 0;
 }
 
 
