@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "OutputVideoPlayer.h"
 #include <irrlicht.h>
 
 extern "C" {
@@ -98,6 +99,8 @@ private:
 	int getNearestWidth(float aspect, int height);
 	int getNearestHeight(float aspect, int width);
 	int decodeFrameInternal();
+
+	OutputVideoPlayer ovp;
 	
 };
 

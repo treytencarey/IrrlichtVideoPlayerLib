@@ -6,7 +6,8 @@
 #pragma warning(disable : 4996)
 
 #include <iostream>
-#include "../IrrlichtVideoPlayerLib/VideoPlayer.h"
+#include "VideoPlayer.h"
+#include "ScreenRecorder.h"
 #include <irrlicht.h>
 using namespace irr;
 using namespace core;
@@ -69,15 +70,24 @@ int main()
 	u32 then = device->getTimer()->getTime();
 	u32 firstStartTime = device->getTimer()->getTime();
 
+
+	/*ScreenRecorder screen_record;
+
+	screen_record.openCamera();
+	screen_record.init_outputfile();
+	screen_record.CaptureVideoFrames(); */
+
+
 	bool fileFinished = false;
 	/// Create a video player and initialize it
 	VideoPlayer vp;
-	const char* file = "big_buck_bunny.ogv"; // Use "desktop" to capture the desktop
+	const char* file = "desktop"; // Use "desktop" to capture the desktop
 	int ret = vp.init(file, device);
 	if (ret < 0)
 	{
 		std::cout << "ERROR!" << std::endl;
 	}
+	// vp.beginOutput("test.h264");
 
 	while (device->run())
 	{
@@ -123,7 +133,7 @@ int main()
 		s32 fps = driver->getFPS();
 		s += fps;
 		device->setWindowCaption(s.c_str());	
-	}	
+	}
 
 	device->drop();
 	return 0;

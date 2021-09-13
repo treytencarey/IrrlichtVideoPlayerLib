@@ -52,6 +52,7 @@ void writeVideoTexture(AVFrame *pFrame, IImage* imageRt) {
 	//from big Indian to little indian if needed
 	int i, temp;
 	uint8_t* frameData = pFrame->data[0];
+
 	//for (i = 0; i < width*height * 3; i += 3)
 	//{
 		//swap R and B; raw_image[i + 1] is G, so it stays where it is.
@@ -196,6 +197,9 @@ int VideoPlayer::init(const char* filename, IrrlichtDevice *device, bool scaleTo
 	
 	avcodec_flush_buffers(pCodecCtx);
 	then = device->getTimer()->getTime();
+
+	ovp.init();
+
 	return 0;
 }
 
@@ -231,24 +235,23 @@ int VideoPlayer::decodeFrameInternal() {
 				{
 					ret = 0;
 					avcodec_send_packet(pCodecCtx, &packet);
-					continue;
+					break;
 				}
-
+				
 				//pFormatCtx->duration
 				// Convert the image from its native format to RGB
 				sws_scale(sws_ctx, (uint8_t const* const*)pFrame->data,
 					pFrame->linesize, 0, pCodecCtx->height,
 					pFrameRGB->data, pFrameRGB->linesize);
 
+				writeVideoTexture(pFrameRGB, imageRt);
+
 				if (outputting)
 				{
-					if (writeFrame(pFrameRGB) < 0);
-					{
-						ret = 0;
-						continue;
-					}
+					// writeFrame(pFrameRGB);
 				}
-				writeVideoTexture(pFrameRGB, imageRt);
+
+				ovp.pushFrame(pFrame);
 			}
 			ret = 0;
 		}
@@ -383,43 +386,49 @@ int VideoPlayer::writeFrame(AVFrame* pFrame)
 	outPacket.data = NULL;
 	outPacket.size = 0;
 
-	avcodec_send_frame(pOutCodecCtx, pFrame);
 	int ret = 0;
-	while (ret >= 0)
-	{
-		ret = avcodec_receive_packet(pOutCodecCtx, &outPacket);
-		if (ret == AVERROR(EAGAIN))
-		{
-			std::cout << "writeFrame: " << av_make_error_string(ret) << std::endl;
-			avcodec_send_frame(pOutCodecCtx, pFrame);
-			return -1;
+	if (ret = av_read_frame(pOutFormatCtx, &outPacket) >= 0) {
+		// Is this a packet from the video stream?
+		if (packet.stream_index == videoStream) {
+			// Decode video frame
+			// avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, &packet);
+			avcodec_send_frame(pOutCodecCtx, pOutFrame);
+			while (ret >= 0) {
+				ret = avcodec_receive_packet(pOutCodecCtx, &outPacket);
+				if (ret == AVERROR(EAGAIN))
+				{
+					std::cout << "writeFrame: " << av_make_error_string(ret) << std::endl;
+					avcodec_send_frame(pOutCodecCtx, pOutFrame);
+					return -1;
+				}
+
+				if (outPacket.pts != AV_NOPTS_VALUE)
+					outPacket.pts = av_rescale_q(outPacket.pts, outStream->time_base, outStream->time_base);
+				if (outPacket.dts != AV_NOPTS_VALUE)
+					outPacket.dts = av_rescale_q(outPacket.dts, outStream->time_base, outStream->time_base);
+
+				static int counter = 0;
+				if (counter == 0) {
+					FILE* fp = fopen("dump_first_frame1.dat", "wb");
+					fwrite(outPacket.data, outPacket.size, 1, fp);
+					fclose(fp);
+				}
+				std::cout << "pkt key: " << (outPacket.flags & AV_PKT_FLAG_KEY) << " " <<
+					outPacket.size << " " << (counter++) << std::endl;
+				uint8_t* size = ((uint8_t*)outPacket.data);
+				std::cout << "first: " << (int)size[0] << " " << (int)size[1] <<
+					" " << (int)size[2] << " " << (int)size[3] << " " << (int)size[4] <<
+					" " << (int)size[5] << " " << (int)size[6] << " " << (int)size[7] <<
+					std::endl;
+
+				if (av_write_frame(pOutFormatCtx, &outPacket) != 0)
+				{
+					std::cout << "\nerror in writing video frame";
+				}
+
+				av_packet_unref(&outPacket);
+			}
 		}
-
-		if (outPacket.pts != AV_NOPTS_VALUE)
-			outPacket.pts = av_rescale_q(outPacket.pts, outStream->time_base, outStream->time_base);
-		if (outPacket.dts != AV_NOPTS_VALUE)
-			outPacket.dts = av_rescale_q(outPacket.dts, outStream->time_base, outStream->time_base);
-
-		static int counter = 0;
-		if (counter == 0) {
-			FILE* fp = fopen("dump_first_frame1.dat", "wb");
-			fwrite(outPacket.data, outPacket.size, 1, fp);
-			fclose(fp);
-		}
-		std::cout << "pkt key: " << (outPacket.flags & AV_PKT_FLAG_KEY) << " " <<
-			outPacket.size << " " << (counter++) << std::endl;
-		uint8_t* size = ((uint8_t*)outPacket.data);
-		std::cout << "first: " << (int)size[0] << " " << (int)size[1] <<
-			" " << (int)size[2] << " " << (int)size[3] << " " << (int)size[4] <<
-			" " << (int)size[5] << " " << (int)size[6] << " " << (int)size[7] <<
-			std::endl;
-
-		if (av_write_frame(pOutFormatCtx, &outPacket) != 0)
-		{
-			std::cout << "\nerror in writing video frame";
-		}
-
-		av_packet_unref(&outPacket);
 	}
 
 	return 0;
@@ -454,6 +463,10 @@ int VideoPlayer::getFrameWidth() {
 
 VideoPlayer::~VideoPlayer()
 {
+	FILE* fp = fopen("dump_first_frame12.dat", "wb");
+	fwrite("TST", 3, 1, fp);
+	fclose(fp);
+
 	//Free all stuff
 	if (imageRt)
 		imageRt->drop();
