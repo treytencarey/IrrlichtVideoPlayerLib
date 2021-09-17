@@ -168,13 +168,13 @@ int VideoPlayer::init(const char* filename, IrrlichtDevice *device, bool scaleTo
 	int height = scaleToScreenWidth ? getNearestHeight(((float)pCodecCtx->width) / pCodecCtx->height, width): 
 		pCodecCtx->height;
 	// Determine required buffer size and allocate buffer
-	numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, width, height, 1);
+	numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB32, width, height, 1);
 	buffer = (uint8_t *)av_malloc(numBytes * sizeof(uint8_t));
 
 	// Assign appropriate parts of buffer to image planes in pFrameRGB
 	// Note that pFrameRGB is an AVFrame, but AVFrame is a superset
 	// of AVPicture
-	av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer, AV_PIX_FMT_RGB24,
+	av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer, AV_PIX_FMT_RGB32,
 		width, height, 1);
 
 	// initialize SWS context for software scaling
@@ -183,7 +183,7 @@ int VideoPlayer::init(const char* filename, IrrlichtDevice *device, bool scaleTo
 		pCodecCtx->pix_fmt,
 		width,
 		height,
-		AV_PIX_FMT_RGB24,
+		AV_PIX_FMT_RGB32,
 		SWS_BILINEAR,
 		NULL,
 		NULL,
@@ -192,7 +192,7 @@ int VideoPlayer::init(const char* filename, IrrlichtDevice *device, bool scaleTo
 	//Frame Rate of the file
 	framerate = filename == "desktop" ? 15 : pFormatCtx->streams[videoStream]->r_frame_rate.num;
 	//Creating the image holding the decoded video frame data
-	imageRt = driver->createImage(ECOLOR_FORMAT::ECF_R8G8B8,
+	imageRt = driver->createImage(ECOLOR_FORMAT::ECF_A8R8G8B8,
 		dimension2du(width, height));
 	
 	avcodec_flush_buffers(pCodecCtx);

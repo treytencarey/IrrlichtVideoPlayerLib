@@ -19,13 +19,13 @@ void OutputVideoPlayer::pushFrame(AVFrame* pFrame) {
         }
     }
     if (!swsCtx) {
-        swsCtx = sws_getContext(cctx->width, cctx->height, AV_PIX_FMT_RGB24, cctx->width,
+        swsCtx = sws_getContext(cctx->width, cctx->height, AV_PIX_FMT_RGB32, cctx->width,
             cctx->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, 0, 0, 0);
     }
     // From RGB to YUV
     sws_scale(swsCtx, (uint8_t const* const*)pFrame->data, pFrame->linesize, 0, cctx->height,
         videoFrame->data, videoFrame->linesize);
-    //videoFrame->data[0] = pFrame->data[0];
+    // videoFrame->data[0] = pFrame->data[0];
 
     videoFrame->pts = (1.0 / 30.0) * 90000 * (frameCounter++);
     std::cout << videoFrame->pts << " " << cctx->time_base.num << " " <<
