@@ -6,14 +6,11 @@ Based on the following GitHub projects, which were outdated and uplifted in this
 - [IrrlichtVideoPlayerLib](https://github.com/mahmoudgalal/IrrlichtVideoPlayerLib)
 - [screen-recorder-ffmpeg-cpp](https://github.com/abdullahfarwees/screen-recorder-ffmpeg-cpp)
 
-Additional features to be supported:
-
-- Output stream to file.
-
 ## Features
 
 - Play video files and display them on 3D textures.
 - Screen capture and display it on 3D textures.
+- Output stream to file.
 
 ## Installation
 
