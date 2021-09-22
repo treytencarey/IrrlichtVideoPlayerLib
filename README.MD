@@ -77,6 +77,7 @@ export CC=cl
              --disable-programs \
              --enable-libx264 \
              --enable-gpl \
+             --enable-librsvg \
              --extra-ldflags="-LIBPATH:./../../installed/lib/" \
              --extra-cflags="-I./../../installed/include/"
  
